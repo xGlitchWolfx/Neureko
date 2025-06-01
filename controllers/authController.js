@@ -14,40 +14,45 @@ const generateToken = (user) => {
 
 // Registro de usuario con validaciones y envío de correo
 export const register = async (req, res) => {
-  const { nombre, correo, contrasena } = req.body
+  console.log("Registro recibido:", req.body);
+
+  const { nombre, correo, contrasena } = req.body;
 
   if (!nombre || !correo || !contrasena)
-    return res.status(400).json({ msg: 'Todos los campos son obligatorios' })
+    return res.status(400).json({ msg: 'Todos los campos son obligatorios' });
 
   if (contrasena.length < 5)
-    return res.status(400).json({ msg: 'La contraseña debe tener al menos 5 caracteres' })
+    return res.status(400).json({ msg: 'La contraseña debe tener al menos 5 caracteres' });
 
   try {
-    const existe = await User.findOne({ correo })
+    const existe = await User.findOne({ correo });
     if (existe)
-      return res.status(400).json({ msg: 'Correo ya registrado' })
+      return res.status(400).json({ msg: 'Correo ya registrado' });
 
     const nuevoUsuario = new User({
       nombre,
       correo,
       rol: 'usuario'
-    })
+    });
 
-    nuevoUsuario.contrasena = await nuevoUsuario.encriptarContrasena(contrasena)
-    const token = nuevoUsuario.generarToken()
+    nuevoUsuario.contrasena = await nuevoUsuario.encriptarContrasena(contrasena);
+    const token = nuevoUsuario.generarToken();
 
-    await nuevoUsuario.save()
-    await sendMailToRegister(correo, token)
+    await nuevoUsuario.save();
+
+    console.log("Enviando correo a:", correo);
+    await sendMailToRegister(correo, token);
 
     return res.status(201).json({
       msg: 'Usuario registrado. Revisa tu correo para confirmar tu cuenta.'
-    })
+    });
 
   } catch (error) {
-    console.error(error)
-    return res.status(500).json({ msg: 'Error en el servidor' })
+    console.error("Error en /register:", error);
+    return res.status(500).json({ msg: 'Error en el servidor', error: error.message });
   }
 }
+
 
 // Login de usuario
 export const login = async (req, res) => {

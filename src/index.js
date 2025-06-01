@@ -12,7 +12,7 @@ mongoose.connect(process.env.MONGODB_URI, {
 }).then(() => {
   console.log('✅ MongoDB conectado')
   app.listen(PORT, () => {
-    console.log(`Servidor corriendo en http://localhost:${PORT}`)
+    console.log(`Servidor corriendo en el puerto ${PORT}`)
   })
 }).catch(err => {
   console.error('Error de conexión a MongoDB:', err)

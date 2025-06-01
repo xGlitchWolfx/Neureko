@@ -1,7 +1,7 @@
 import User from '../models/User.js'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
-import sendMailToRegister from '../utils/sendMailToRegister.js'
+import sendMailToRegister from '../config/sendMailToRegister.js'
 
 // Función para generar token JWT (uso en login)
 const generateToken = (user) => {

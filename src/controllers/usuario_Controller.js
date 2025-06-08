@@ -1,101 +1,123 @@
 import User from '../models/User.js'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
-import sendMailToRegister from '../config/sendMailToRegister.js'
+import { sendMailToRegister, sendMailToRecoveryPassword } from '../config/sendMailToRegister.js'
 
-// Función para generar token JWT (uso en login)
+// Generar token JWT
 const generateToken = (user) => {
-  return jwt.sign(
-    { id: user._id, role: user.rol },
-    process.env.JWT_SECRET,
-    { expiresIn: '1d' }
-  )
+  return jwt.sign({ id: user._id, role: user.rol }, process.env.JWT_SECRET, { expiresIn: '1d' })
 }
 
-// Registro de usuario con validaciones y envío de correo
-export const register = async (req, res) => {
-  console.log("Registro recibido:", req.body);
-
-  const { nombre, correo, contrasena } = req.body;
+// Registro de usuario
+const register = async (req, res) => {
+  const { nombre, correo, contrasena } = req.body
 
   if (!nombre || !correo || !contrasena)
-    return res.status(400).json({ msg: 'Todos los campos son obligatorios' });
+    return res.status(400).json({ msg: 'Todos los campos son obligatorios' })
 
   if (contrasena.length < 5)
-    return res.status(400).json({ msg: 'La contraseña debe tener al menos 5 caracteres' });
+    return res.status(400).json({ msg: 'La contraseña debe tener al menos 5 caracteres' })
 
-  try {
-    const existe = await User.findOne({ correo });
-    if (existe)
-      return res.status(400).json({ msg: 'Correo ya registrado' });
+  const existe = await User.findOne({ correo })
+  if (existe)
+    return res.status(400).json({ msg: 'Correo ya registrado' })
 
-    const nuevoUsuario = new User({
-      nombre,
-      correo,
-      rol: 'usuario'
-    });
+  const nuevoUsuario = new User({ nombre, correo, rol: 'usuario' })
+  nuevoUsuario.contrasena = await nuevoUsuario.encriptarContrasena(contrasena)
+  const token = nuevoUsuario.generarToken()
 
-    nuevoUsuario.contrasena = await nuevoUsuario.encriptarContrasena(contrasena);
-    const token = nuevoUsuario.generarToken();
+  await nuevoUsuario.save()
+  await sendMailToRegister(correo, token)
 
-    await nuevoUsuario.save();
-
-    console.log("Enviando correo a:", correo);
-    await sendMailToRegister(correo, token);
-
-    return res.status(201).json({
-      msg: 'Usuario registrado. Revisa tu correo para confirmar tu cuenta.'
-    });
-
-  } catch (error) {
-    console.error("Error en /register:", error);
-    return res.status(500).json({ msg: 'Error en el servidor', error: error.message });
-  }
+  res.status(201).json({ msg: 'Usuario registrado. Revisa tu correo para confirmar tu cuenta.' })
 }
 
-
-// Login de usuario
-export const login = async (req, res) => {
-  const { correo, contrasena } = req.body
-
-  try {
-    const usuario = await User.findOne({ correo })
-    if (!usuario)
-      return res.status(404).json({ msg: 'Usuario no encontrado' })
-
-    const esValida = await bcrypt.compare(contrasena, usuario.contrasena)
-    if (!esValida)
-      return res.status(400).json({ msg: 'Contraseña incorrecta' })
-
-    if (!usuario.confirmEmail)
-      return res.status(403).json({ msg: 'Debes confirmar tu correo antes de iniciar sesión' })
-
-    const token = generateToken(usuario)
-    return res.json({ token })
-
-  } catch (error) {
-    console.error(error)
-    return res.status(500).json({ msg: 'Error al iniciar sesión' })
-  }
-}
-
-// Confirmación de cuenta mediante token enviado por correo
-export const confirmarCuenta = async (req, res) => {
+// Confirmar cuenta con token
+const confirmarCuenta = async (req, res) => {
   const { token } = req.params
 
-  try {
-    const usuario = await User.findOne({ token })
+  const usuario = await User.findOne({ token })
+  if (!usuario || usuario.confirmEmail)
+    return res.status(404).json({ msg: 'Token inválido o cuenta ya confirmada' })
 
-    if (!usuario)
-      return res.status(404).json({ msg: 'Token no válido o cuenta ya confirmada' })
+  usuario.token = null
+  usuario.confirmEmail = true
+  await usuario.save()
 
-    usuario.confirmEmail = true
-    usuario.token = null
-    await usuario.save()
+  res.status(200).json({ msg: 'Cuenta confirmada correctamente. Ya puedes iniciar sesión.' })
+}
 
-    res.json({ msg: 'uenta confirmada correctamente. Ya puedes iniciar sesión.' })
-  } catch (error) {
-    console.error(error)
-    res.status(500).json({ msg: 'Error al confirmar la cuenta' })
-  }
+// Login
+const login = async (req, res) => {
+  const { correo, contrasena } = req.body
+
+  const usuario = await User.findOne({ correo })
+  if (!usuario)
+    return res.status(404).json({ msg: 'Usuario no encontrado' })
+
+  const esValida = await bcrypt.compare(contrasena, usuario.contrasena)
+  if (!esValida)
+    return res.status(400).json({ msg: 'Contraseña incorrecta' })
+
+  if (!usuario.confirmEmail)
+    return res.status(403).json({ msg: 'Debes confirmar tu correo antes de iniciar sesión' })
+
+  const token = generateToken(usuario)
+  res.status(200).json({ token })
+}
+
+// Recuperar contraseña
+const recuperarPassword = async (req, res) => {
+  const { correo } = req.body
+  if (!correo) return res.status(400).json({ msg: 'El campo correo es obligatorio' })
+
+  const usuario = await User.findOne({ correo })
+  if (!usuario) return res.status(404).json({ msg: 'Usuario no encontrado' })
+
+  const token = usuario.generarToken()
+  usuario.token = token
+  await usuario.save()
+
+  await sendMailToRecoveryPassword(correo, token)
+  res.status(200).json({ msg: 'Revisa tu correo electrónico para reestablecer tu contraseña' })
+}
+
+// Comprobar token de recuperación
+const comprobarTokenPassword = async (req, res) => {
+  const { token } = req.params
+
+  const usuario = await User.findOne({ token })
+  if (!usuario) return res.status(404).json({ msg: 'Token inválido o expirado' })
+
+  res.status(200).json({ msg: 'Token válido. Puedes establecer nueva contraseña' })
+}
+
+// Crear nueva contraseña
+const crearNuevoPassword = async (req, res) => {
+  const { token } = req.params
+  const { password, confirmpassword } = req.body
+
+  if (!password || !confirmpassword)
+    return res.status(400).json({ msg: 'Todos los campos son obligatorios' })
+
+  if (password !== confirmpassword)
+    return res.status(400).json({ msg: 'Las contraseñas no coinciden' })
+
+  const usuario = await User.findOne({ token })
+  if (!usuario) return res.status(404).json({ msg: 'Token inválido o expirado' })
+
+  usuario.token = null
+  usuario.contrasena = await usuario.encriptarContrasena(password)
+  await usuario.save()
+
+  res.status(200).json({ msg: 'Contraseña actualizada correctamente. Ya puedes iniciar sesión.' })
+}
+
+export {
+  register,
+  confirmarCuenta,
+  login,
+  recuperarPassword,
+  comprobarTokenPassword,
+  crearNuevoPassword
 }

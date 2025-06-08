@@ -38,7 +38,16 @@ const userSchema = new Schema({
   confirmEmail: {
     type: Boolean,
     default: false
-  }
+  },
+    tokenRecuperacion: {
+    type: String,
+    default: null
+  },
+  expiraToken: {
+    type: Date,
+    default: null
+  },
+
 }, {
   timestamps: true
 })
